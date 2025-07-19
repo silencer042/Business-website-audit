@@ -1,0 +1,6 @@
+asyncio
+pandas
+playwright==1.40.0
+tqdm
+openpyxl
+xlrd
