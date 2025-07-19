@@ -36,4 +36,4 @@ jobs:
 
       - name: Run Audit Script
         run: |
-          python enhanced_audit_script.py "${{ github.event.inputs.csv_file }}"
+          python complete_audit_script.py "${{ github.event.inputs.csv_file }}"
