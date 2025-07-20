@@ -102,7 +102,7 @@ jobs:
 
   # Main audit job
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: validate
     if: needs.validate.outputs.file_exists == 'true'
     timeout-minutes: 360  # 6 hours maximum
@@ -131,7 +131,7 @@ jobs:
           if [ ! -f "requirements.txt" ]; then
             echo "📝 Creating requirements.txt"
             cat > requirements.txt << EOF
-          playwright==1.40.0
+          playwright==1.45.1
           pandas==2.1.4
           tqdm==4.66.1
           openpyxl==3.1.2
@@ -153,39 +153,6 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
           echo "✅ Python dependencies installed"
-
-      - name: Install system dependencies for Playwright
-        run: |
-          # Update package lists
-          sudo apt-get update
-          
-          # Install essential dependencies with correct package names for Ubuntu 24.04
-          sudo apt-get install -y \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libdrm2 \
-            libxkbcommon0 \
-            libgtk-3-0 \
-            libgbm1 \
-            libasound2t64 \
-            libxrandr2 \
-            libxss1 \
-            libxtst6 \
-            libxcomposite1 \
-            libxcursor1 \
-            libxdamage1 \
-            libxi6 \
-            libxfixes3 \
-            libegl1 \
-            libgl1 \
-            libgles2 \
-            xvfb \
-            fonts-liberation \
-            libappindicator3-1 \
-            libu2f-udev \
-            libvulkan1
-          
-          echo "✅ System dependencies installed"
 
       - name: Install Playwright and browsers
         run: |
@@ -319,7 +286,7 @@ jobs:
 
   # Fallback job when file doesn't exist
   file-not-found:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: validate
     if: needs.validate.outputs.file_exists == 'false'
     
