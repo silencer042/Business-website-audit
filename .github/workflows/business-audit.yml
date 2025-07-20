@@ -44,7 +44,6 @@ permissions:
 # Environment variables
 env:
   PYTHON_VERSION: '3.11'
-  NODE_VERSION: '18'
 
 jobs:
   # Job to validate inputs and setup
@@ -127,12 +126,6 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
 
-      - name: Set up Node.js (for Playwright)
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
       - name: Create requirements.txt if missing
         run: |
           if [ ! -f "requirements.txt" ]; then
@@ -163,12 +156,12 @@ jobs:
 
       - name: Install Playwright and browsers
         run: |
-          # Install playwright
-          playwright install-deps
-          playwright install chromium
+          # Install playwright browsers directly via Python
+          python -m playwright install-deps
+          python -m playwright install chromium
           
           # Verify installation
-          playwright --version
+          python -m playwright --version
           echo "✅ Playwright and Chromium installed"
 
       - name: Verify input file and show sample data
