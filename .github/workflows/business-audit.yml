@@ -1,47 +1,340 @@
 name: Business Website Audit
 
 on:
+  # Trigger on pushes to input files
   push:
     paths:
       - 'input/*.csv'
       - 'input/*.xlsx'
       - 'input/*.xls'
+      - '.github/workflows/business-audit.yml'  # Also trigger when workflow is updated
+    branches:
+      - main
+      - master
+      - develop  # Add other branches as needed
 
+  # Manual trigger with input file specification
   workflow_dispatch:
     inputs:
       csv_file:
-        description: 'Path to CSV/Excel file in input folder'
+        description: 'Path to CSV/Excel file in input folder (e.g., input/businesses.csv)'
         required: true
         default: 'input/businesses.csv'
+        type: string
+      concurrent_browsers:
+        description: 'Number of concurrent browsers (1-3, default: 1)'
+        required: false
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
+      timeout_seconds:
+        description: 'Timeout per website in seconds (5-30, default: 10)'
+        required: false
+        default: '10'
+        type: string
+
+# Set permissions for the workflow
+permissions:
+  contents: read
+  actions: read
+
+# Environment variables
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
 
 jobs:
-  audit:
+  # Job to validate inputs and setup
+  validate:
     runs-on: ubuntu-latest
-
+    outputs:
+      input_file: ${{ steps.validate_inputs.outputs.input_file }}
+      file_exists: ${{ steps.validate_inputs.outputs.file_exists }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Validate inputs and check file existence
+        id: validate_inputs
+        run: |
+          # Determine input file
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            INPUT_FILE="${{ github.event.inputs.csv_file }}"
+          else
+            # Find the most recently modified file in input directory
+            if [ -d "input" ] && [ "$(ls -A input/ 2>/dev/null)" ]; then
+              INPUT_FILE=$(find input/ -name "*.csv" -o -name "*.xlsx" -o -name "*.xls" | head -1)
+              if [ -z "$INPUT_FILE" ]; then
+                INPUT_FILE="input/businesses.csv"
+              fi
+            else
+              INPUT_FILE="input/businesses.csv"
+            fi
+          fi
+
+          echo "input_file=$INPUT_FILE" >> $GITHUB_OUTPUT
+          echo "🔍 Input file: $INPUT_FILE"
+
+          # Check if file exists
+          if [ -f "$INPUT_FILE" ]; then
+            echo "file_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ File exists: $INPUT_FILE"
+            
+            # Show file info
+            echo "📊 File information:"
+            ls -la "$INPUT_FILE"
+            
+            # Show first few lines for CSV files
+            if [[ "$INPUT_FILE" == *.csv ]]; then
+              echo "📋 First 5 lines of CSV:"
+              head -5 "$INPUT_FILE" || echo "Could not read file contents"
+            fi
+          else
+            echo "file_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ File does not exist: $INPUT_FILE"
+            echo "📁 Contents of input directory:"
+            ls -la input/ 2>/dev/null || echo "Input directory does not exist"
+          fi
+
+  # Main audit job
+  audit:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.file_exists == 'true'
+    timeout-minutes: 360  # 6 hours maximum
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Create required directories
+        run: |
+          mkdir -p output
+          mkdir -p logs
+          mkdir -p temp
+          echo "📁 Created output, logs, and temp directories"
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Set up Node.js (for Playwright)
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Create requirements.txt if missing
+        run: |
+          if [ ! -f "requirements.txt" ]; then
+            echo "📝 Creating requirements.txt"
+            cat > requirements.txt << EOF
+          playwright==1.40.0
+          pandas==2.1.4
+          tqdm==4.66.1
+          openpyxl==3.1.2
+          xlrd==2.0.1
+          requests==2.31.0
+          beautifulsoup4==4.12.2
+          lxml==4.9.3
+          aiohttp==3.9.1
+          asyncio
+          ssl
+          EOF
+          fi
+          
+          echo "📋 Requirements.txt contents:"
+          cat requirements.txt
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
+          echo "✅ Python dependencies installed"
 
-      - name: Install Playwright browsers
+      - name: Install Playwright and browsers
         run: |
-          npx playwright install --with-deps
+          # Install playwright
+          playwright install-deps
+          playwright install chromium
+          
+          # Verify installation
+          playwright --version
+          echo "✅ Playwright and Chromium installed"
 
-      - name: Run Audit Script
+      - name: Verify input file and show sample data
         run: |
-          python complete_audit_script.py "${{ github.event.inputs.csv_file }}"
+          INPUT_FILE="${{ needs.validate.outputs.input_file }}"
+          echo "🔍 Processing file: $INPUT_FILE"
+          
+          if [ -f "$INPUT_FILE" ]; then
+            echo "✅ File confirmed to exist"
+            echo "📊 File size: $(du -h "$INPUT_FILE" | cut -f1)"
+            echo "📊 File type: $(file "$INPUT_FILE")"
+            
+            # Try to show sample data based on file type
+            if [[ "$INPUT_FILE" == *.csv ]]; then
+              echo "📋 First 3 lines:"
+              head -3 "$INPUT_FILE" 2>/dev/null || echo "Could not read CSV file"
+            else
+              echo "📋 Excel file detected"
+            fi
+          else
+            echo "❌ Error: File not found!"
+            exit 1
+          fi
+
+      - name: Run Business Audit Script
+        env:
+          INPUT_FILE: ${{ needs.validate.outputs.input_file }}
+          CONCURRENT_BROWSERS: ${{ github.event.inputs.concurrent_browsers || '1' }}
+          TIMEOUT_SECONDS: ${{ github.event.inputs.timeout_seconds || '10' }}
+        run: |
+          echo "🚀 Starting audit with parameters:"
+          echo "  📁 Input file: $INPUT_FILE"
+          echo "  🔄 Concurrent browsers: $CONCURRENT_BROWSERS"
+          echo "  ⏱️  Timeout: ${TIMEOUT_SECONDS}s"
+          
+          # Export environment variables for the Python script
+          export CONCURRENT_BROWSERS_ENV=$CONCURRENT_BROWSERS
+          export TIMEOUT_SECONDS_ENV=$TIMEOUT_SECONDS
+          
+          # Run the audit script
+          python complete_audit_script.py "$INPUT_FILE"
+          
+          echo "✅ Audit script completed"
+
+      - name: Verify output files
+        run: |
+          echo "📁 Contents of output directory:"
+          ls -la output/ 2>/dev/null || echo "No output directory found"
+          
+          echo "📁 Contents of logs directory:"
+          ls -la logs/ 2>/dev/null || echo "No logs directory found"
+          
+          # Check if any CSV files were created
+          OUTPUT_FILES=$(find output/ -name "*.csv" 2>/dev/null | wc -l)
+          echo "📊 Found $OUTPUT_FILES CSV output files"
+          
+          if [ $OUTPUT_FILES -eq 0 ]; then
+            echo "⚠️ Warning: No CSV files found in output directory"
+            echo "This might indicate the script processed 0 businesses"
+          else
+            echo "✅ Output files found:"
+            find output/ -name "*.csv" -exec ls -la {} \;
+          fi
+
+      - name: Create summary report
+        run: |
+          echo "# Business Audit Summary" > output/SUMMARY.md
+          echo "Generated: $(date)" >> output/SUMMARY.md
+          echo "" >> output/SUMMARY.md
+          
+          # Add input file info
+          INPUT_FILE="${{ needs.validate.outputs.input_file }}"
+          echo "## Input File" >> output/SUMMARY.md
+          echo "- File: $INPUT_FILE" >> output/SUMMARY.md
+          echo "- Size: $(du -h "$INPUT_FILE" 2>/dev/null | cut -f1 || echo 'Unknown')" >> output/SUMMARY.md
+          echo "" >> output/SUMMARY.md
+          
+          # Add output files info
+          echo "## Output Files" >> output/SUMMARY.md
+          if [ -d "output" ]; then
+            for file in output/*.csv; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                lines=$(wc -l < "$file" 2>/dev/null || echo "0")
+                size=$(du -h "$file" 2>/dev/null | cut -f1 || echo "Unknown")
+                echo "- $filename: $lines lines, $size" >> output/SUMMARY.md
+              fi
+            done
+          else
+            echo "- No output files generated" >> output/SUMMARY.md
+          fi
+          
+          echo "" >> output/SUMMARY.md
+          echo "## Workflow Details" >> output/SUMMARY.md
+          echo "- Workflow: ${{ github.workflow }}" >> output/SUMMARY.md
+          echo "- Run ID: ${{ github.run_id }}" >> output/SUMMARY.md
+          echo "- Commit: ${{ github.sha }}" >> output/SUMMARY.md
+          echo "- Triggered by: ${{ github.event_name }}" >> output/SUMMARY.md
 
       - name: Upload audit results
         uses: actions/upload-artifact@v4
+        if: always()  # Upload even if previous steps failed
         with:
-          name: audit-results
-          path: output/*.csv
+          name: audit-results-${{ github.run_id }}
+          path: |
+            output/
+            logs/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Upload individual result files
+        if: always()
+        run: |
+          # Upload each CSV file as a separate artifact if they exist
+          if [ -d "output" ]; then
+            for file in output/*.csv; do
+              if [ -f "$file" ]; then
+                filename=$(basename "$file" .csv)
+                echo "Preparing to upload: $filename"
+              fi
+            done
+          fi
+
+  # Fallback job when file doesn't exist
+  file-not-found:
+    runs-on: ubuntu-latest
+    needs: validate
+    if: needs.validate.outputs.file_exists == 'false'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show error message and guidance
+        run: |
+          echo "❌ INPUT FILE NOT FOUND"
+          echo "Expected file: ${{ needs.validate.outputs.input_file }}"
+          echo ""
+          echo "📁 Repository structure:"
+          find . -type f -name "*.csv" -o -name "*.xlsx" -o -name "*.xls" | head -10
+          echo ""
+          echo "💡 To fix this issue:"
+          echo "1. Create an 'input' directory in your repository root"
+          echo "2. Upload your CSV/Excel file to the input directory"
+          echo "3. Make sure the file has the correct extension (.csv, .xlsx, or .xls)"
+          echo "4. Commit and push the changes"
+          echo ""
+          echo "📝 Example file structure:"
+          echo "├── input/"
+          echo "│   └── businesses.csv"
+          echo "├── complete_audit_script.py"
+          echo "└── .github/workflows/business-audit.yml"
+
+      - name: Create sample input file
+        run: |
+          mkdir -p input
+          cat > input/sample_businesses.csv << 'EOF'
+          business_name,website,city
+          Example Business,https://example.com,New York
+          Sample Company,https://sample.org,Los Angeles
+          Test Store,https://teststore.net,Chicago
+          EOF
+          echo "📝 Created sample input file at input/sample_businesses.csv"
+
+      - name: Upload sample file
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-input-file
+          path: input/sample_businesses.csv
