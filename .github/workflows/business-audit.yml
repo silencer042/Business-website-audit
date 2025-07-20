@@ -154,11 +154,40 @@ jobs:
           pip install -r requirements.txt
           echo "✅ Python dependencies installed"
 
+      - name: Install system dependencies for Playwright
+        run: |
+          # Update package lists
+          sudo apt-get update
+          
+          # Install essential dependencies manually to avoid conflicts
+          sudo apt-get install -y \
+            libnss3 \
+            libatk-bridge2.0-0 \
+            libdrm2 \
+            libxkbcommon0 \
+            libgtk-3-0 \
+            libgbm1 \
+            libasound2t64 \
+            libxrandr2 \
+            libxss1 \
+            libgconf-2-4 \
+            libxtst6 \
+            libxcomposite1 \
+            libxcursor1 \
+            libxdamage1 \
+            libxi6 \
+            libxfixes3 \
+            libegl1-mesa \
+            libgl1-mesa-glx \
+            libgles2-mesa \
+            xvfb
+          
+          echo "✅ System dependencies installed"
+
       - name: Install Playwright and browsers
         run: |
-          # Install playwright browsers directly via Python
-          python -m playwright install-deps
-          python -m playwright install chromium
+          # Install Playwright browsers without system dependencies (we handled those above)
+          python -m playwright install chromium --with-deps || python -m playwright install chromium
           
           # Verify installation
           python -m playwright --version
