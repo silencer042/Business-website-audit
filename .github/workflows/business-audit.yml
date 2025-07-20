@@ -159,7 +159,7 @@ jobs:
           # Update package lists
           sudo apt-get update
           
-          # Install essential dependencies manually to avoid conflicts
+          # Install essential dependencies with correct package names for Ubuntu 24.04
           sudo apt-get install -y \
             libnss3 \
             libatk-bridge2.0-0 \
@@ -170,24 +170,27 @@ jobs:
             libasound2t64 \
             libxrandr2 \
             libxss1 \
-            libgconf-2-4 \
             libxtst6 \
             libxcomposite1 \
             libxcursor1 \
             libxdamage1 \
             libxi6 \
             libxfixes3 \
-            libegl1-mesa \
-            libgl1-mesa-glx \
-            libgles2-mesa \
-            xvfb
+            libegl1 \
+            libgl1 \
+            libgles2 \
+            xvfb \
+            fonts-liberation \
+            libappindicator3-1 \
+            libu2f-udev \
+            libvulkan1
           
           echo "✅ System dependencies installed"
 
       - name: Install Playwright and browsers
         run: |
-          # Install Playwright browsers without system dependencies (we handled those above)
-          python -m playwright install chromium --with-deps || python -m playwright install chromium
+          # Install Playwright browsers with dependencies
+          python -m playwright install --with-deps chromium
           
           # Verify installation
           python -m playwright --version
