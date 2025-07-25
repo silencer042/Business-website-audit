@@ -17,6 +17,8 @@ from tqdm import tqdm
 # Configuration - Modified for GitHub Actions
 INPUT_FILE = sys.argv[1] if len(sys.argv) > 1 else "input/businesses.csv"
 OUTPUT_CSV = "output/qualified_businesses.csv"
+ACTIVE_ONLINE_CSV = "output/active_online_businesses.csv"
+INACTIVE_BUSINESSES_CSV = "output/inactive_businesses.csv"
 CLOSED_BUSINESSES_CSV = "output/closed_businesses.csv"
 FAILED_BUSINESSES_CSV = "output/failed_businesses.csv"
 
@@ -262,7 +264,7 @@ async def check_website_quality(page, url):
                     technologies.push('WordPress');
                 }
                 
-                // Check for Shopify
+                # Check for Shopify
                 if (window.Shopify || document.querySelector('[data-shopify]')) {
                     technologies.push('Shopify');
                 }
@@ -548,6 +550,30 @@ async def process_businesses_batch(businesses, column_mapping, pbar):
         
         return results, closed, failed
 
+def separate_active_inactive_businesses(qualified_businesses):
+    """Separate qualified businesses into active online and inactive based on criteria"""
+    active_online = []
+    inactive = []
+    
+    for business in qualified_businesses:
+        # Check if business is truly active online
+        is_website_accessible = business.get('website_accessible', False)
+        is_appears_active = business.get('appears_active', False)
+        
+        # Convert string values to boolean if needed
+        if isinstance(is_website_accessible, str):
+            is_website_accessible = is_website_accessible.lower() == 'true'
+        if isinstance(is_appears_active, str):
+            is_appears_active = is_appears_active.lower() == 'true'
+        
+        # Business is active online if both conditions are met
+        if is_website_accessible and is_appears_active:
+            active_online.append(business)
+        else:
+            inactive.append(business)
+    
+    return active_online, inactive
+
 async def main():
     """Main function to orchestrate the entire process"""
     try:
@@ -624,17 +650,31 @@ async def main():
         # Close progress bar
         pbar.close()
         
-        # Save final results
-        print(f"\n📈 FINAL RESULTS:")
-        print(f"✅ Qualified businesses: {len(all_results)}")
-        print(f"🚫 Closed businesses: {len(all_closed)}")
-        print(f"❌ Failed to process: {len(all_failed)}")
+        # Separate active online businesses from inactive ones
+        if all_results:
+            active_online, inactive = separate_active_inactive_businesses(all_results)
+            
+            print(f"\n📈 BUSINESS SEPARATION RESULTS:")
+            print(f"🟢 Active online businesses: {len(active_online)}")
+            print(f"🟡 Inactive businesses: {len(inactive)}")
+            
+            # Save active online businesses
+            if active_online:
+                active_df = pd.DataFrame(active_online)
+                active_df.to_csv(ACTIVE_ONLINE_CSV, index=False)
+                print(f"💾 Active online businesses saved to: {ACTIVE_ONLINE_CSV}")
+            
+            # Save inactive businesses
+            if inactive:
+                inactive_df = pd.DataFrame(inactive)
+                inactive_df.to_csv(INACTIVE_BUSINESSES_CSV, index=False)
+                print(f"💾 Inactive businesses saved to: {INACTIVE_BUSINESSES_CSV}")
         
-        # Save qualified businesses
+        # Save all qualified businesses (for reference)
         if all_results:
             results_df = pd.DataFrame(all_results)
             results_df.to_csv(OUTPUT_CSV, index=False)
-            print(f"💾 Qualified businesses saved to: {OUTPUT_CSV}")
+            print(f"💾 All qualified businesses saved to: {OUTPUT_CSV}")
         
         # Save closed businesses
         if all_closed:
@@ -649,6 +689,12 @@ async def main():
             print(f"💾 Failed businesses saved to: {FAILED_BUSINESSES_CSV}")
         
         print(f"\n🎉 Analysis complete!")
+        print(f"📊 FINAL SUMMARY:")
+        print(f"✅ Total qualified businesses: {len(all_results) if all_results else 0}")
+        print(f"🟢 Active online businesses: {len(active_online) if all_results else 0}")
+        print(f"🟡 Inactive businesses: {len(inactive) if all_results else 0}")
+        print(f"🚫 Closed businesses: {len(all_closed)}")
+        print(f"❌ Failed to process: {len(all_failed)}")
         
     except KeyboardInterrupt:
         print("\n⚠️ Process interrupted by user")
