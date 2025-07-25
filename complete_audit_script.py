@@ -7,10 +7,8 @@ import random
 import sys
 import os
 from datetime import datetime, timedelta
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 from pathlib import Path
-import aiohttp
-import json
 
 import pandas as pd
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
