@@ -557,16 +557,33 @@ def separate_qualified_businesses(qualified_businesses):
     
     print(f"🔍 Separating {len(qualified_businesses)} qualified businesses...")
     
-    for business in qualified_businesses:
+    for i, business in enumerate(qualified_businesses):
         # Check if business is truly active online
         is_website_accessible = business.get('website_accessible', False)
         is_appears_active = business.get('appears_active', False)
         
-        # Convert string values to boolean if needed
+        # Handle different data types (boolean, string, pandas types)
         if isinstance(is_website_accessible, str):
-            is_website_accessible = is_website_accessible.lower() == 'true'
+            is_website_accessible = is_website_accessible.lower() in ['true', '1', 'yes']
+        elif pd.isna(is_website_accessible):
+            is_website_accessible = False
+        else:
+            is_website_accessible = bool(is_website_accessible)
+            
         if isinstance(is_appears_active, str):
-            is_appears_active = is_appears_active.lower() == 'true'
+            is_appears_active = is_appears_active.lower() in ['true', '1', 'yes']
+        elif pd.isna(is_appears_active):
+            is_appears_active = False
+        else:
+            is_appears_active = bool(is_appears_active)
+        
+        # Debug logging for first few businesses
+        if i < 5:
+            business_name = business.get('Company Name for Emails', business.get('business_name', 'Unknown'))
+            print(f"  Debug #{i+1}: {business_name}")
+            print(f"    website_accessible: {business.get('website_accessible')} → {is_website_accessible}")
+            print(f"    appears_active: {business.get('appears_active')} → {is_appears_active}")
+            print(f"    Will be classified as: {'ACTIVE' if (is_website_accessible and is_appears_active) else 'INACTIVE'}")
         
         # Business is active online if both conditions are met
         if is_website_accessible and is_appears_active:
@@ -577,6 +594,19 @@ def separate_qualified_businesses(qualified_businesses):
     print(f"✅ Separation complete:")
     print(f"  🟢 Qualified Active: {len(qualified_active)} businesses")
     print(f"  🟡 Qualified Inactive: {len(qualified_inactive)} businesses")
+    
+    # Show some examples of each category
+    if qualified_active:
+        print(f"  📋 Sample Active businesses:")
+        for i, business in enumerate(qualified_active[:3]):
+            name = business.get('Company Name for Emails', business.get('business_name', 'Unknown'))
+            print(f"    {i+1}. {name}")
+    
+    if qualified_inactive:
+        print(f"  📋 Sample Inactive businesses:")
+        for i, business in enumerate(qualified_inactive[:3]):
+            name = business.get('Company Name for Emails', business.get('business_name', 'Unknown'))
+            print(f"    {i+1}. {name}")
     
     return qualified_active, qualified_inactive
 
@@ -671,16 +701,41 @@ async def main():
                 active_df = pd.DataFrame(qualified_active)
                 active_df.to_csv(ACTIVE_ONLINE_CSV, index=False)
                 print(f"💾 Qualified active businesses saved to: {ACTIVE_ONLINE_CSV}")
+                
+                # Show a sample of what was saved
+                print(f"📋 Sample of active businesses saved:")
+                for i, business in enumerate(qualified_active[:3]):
+                    name = business.get('Company Name for Emails', business.get('business_name', 'Unknown'))
+                    accessible = business.get('website_accessible')
+                    active = business.get('appears_active')
+                    print(f"  {i+1}. {name} (accessible: {accessible}, active: {active})")
             else:
                 print(f"⚠️  No qualified active businesses found")
+                # Create empty file with headers
+                if all_qualified_results:
+                    empty_df = pd.DataFrame(columns=list(all_qualified_results[0].keys()))
+                    empty_df.to_csv(ACTIVE_ONLINE_CSV, index=False)
             
             # Save qualified inactive businesses
             if qualified_inactive:
                 inactive_df = pd.DataFrame(qualified_inactive)
                 inactive_df.to_csv(INACTIVE_BUSINESSES_CSV, index=False)
                 print(f"💾 Qualified inactive businesses saved to: {INACTIVE_BUSINESSES_CSV}")
+                
+                # Show a sample of what was saved
+                print(f"📋 Sample of inactive businesses saved:")
+                for i, business in enumerate(qualified_inactive[:3]):
+                    name = business.get('Company Name for Emails', business.get('business_name', 'Unknown'))
+                    accessible = business.get('website_accessible')
+                    active = business.get('appears_active')
+                    reasons = business.get('qualification_reasons', 'Unknown')
+                    print(f"  {i+1}. {name} (accessible: {accessible}, active: {active}) - Issues: {reasons}")
             else:
                 print(f"⚠️  No qualified inactive businesses found")
+                # Create empty file with headers
+                if all_qualified_results:
+                    empty_df = pd.DataFrame(columns=list(all_qualified_results[0].keys()))
+                    empty_df.to_csv(INACTIVE_BUSINESSES_CSV, index=False)
         else:
             print(f"⚠️  No qualified businesses found to separate")
         
