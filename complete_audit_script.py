@@ -17,8 +17,8 @@ from tqdm import tqdm
 # Configuration - Modified for GitHub Actions
 INPUT_FILE = sys.argv[1] if len(sys.argv) > 1 else "input/businesses.csv"
 OUTPUT_CSV = "output/qualified_businesses.csv"
-ACTIVE_ONLINE_CSV = "output/active_online_businesses.csv"
-INACTIVE_BUSINESSES_CSV = "output/inactive_businesses.csv"
+ACTIVE_ONLINE_CSV = "output/qualified_active_businesses.csv"
+INACTIVE_BUSINESSES_CSV = "output/qualified_inactive_businesses.csv"
 CLOSED_BUSINESSES_CSV = "output/closed_businesses.csv"
 FAILED_BUSINESSES_CSV = "output/failed_businesses.csv"
 
@@ -264,7 +264,7 @@ async def check_website_quality(page, url):
                     technologies.push('WordPress');
                 }
                 
-                # Check for Shopify
+                // Check for Shopify
                 if (window.Shopify || document.querySelector('[data-shopify]')) {
                     technologies.push('Shopify');
                 }
@@ -550,10 +550,12 @@ async def process_businesses_batch(businesses, column_mapping, pbar):
         
         return results, closed, failed
 
-def separate_active_inactive_businesses(qualified_businesses):
-    """Separate qualified businesses into active online and inactive based on criteria"""
-    active_online = []
-    inactive = []
+def separate_qualified_businesses(qualified_businesses):
+    """Separate ONLY qualified businesses into active online and inactive based on criteria"""
+    qualified_active = []
+    qualified_inactive = []
+    
+    print(f"🔍 Separating {len(qualified_businesses)} qualified businesses...")
     
     for business in qualified_businesses:
         # Check if business is truly active online
@@ -568,11 +570,15 @@ def separate_active_inactive_businesses(qualified_businesses):
         
         # Business is active online if both conditions are met
         if is_website_accessible and is_appears_active:
-            active_online.append(business)
+            qualified_active.append(business)
         else:
-            inactive.append(business)
+            qualified_inactive.append(business)
     
-    return active_online, inactive
+    print(f"✅ Separation complete:")
+    print(f"  🟢 Qualified Active: {len(qualified_active)} businesses")
+    print(f"  🟡 Qualified Inactive: {len(qualified_inactive)} businesses")
+    
+    return qualified_active, qualified_inactive
 
 async def main():
     """Main function to orchestrate the entire process"""
@@ -615,7 +621,7 @@ async def main():
         )
         
         # Process in batches
-        all_results = []
+        all_qualified_results = []
         all_closed = []
         all_failed = []
         
@@ -628,20 +634,20 @@ async def main():
             print(f"\n📊 Processing batch {batch_num}/{total_batches} ({len(batch)} businesses)")
             
             try:
-                results, closed, failed = await process_businesses_batch(batch, column_mapping, pbar)
+                qualified_results, closed, failed = await process_businesses_batch(batch, column_mapping, pbar)
                 
-                all_results.extend(results)
+                all_qualified_results.extend(qualified_results)
                 all_closed.extend(closed)
                 all_failed.extend(failed)
                 
                 print(f"✅ Batch {batch_num} complete:")
-                print(f"  - Qualified businesses: {len(results)}")
+                print(f"  - Qualified businesses: {len(qualified_results)}")
                 print(f"  - Closed businesses: {len(closed)}")
                 print(f"  - Failed: {len(failed)}")
                 
                 # Save progress every 5 batches
                 if batch_num % 5 == 0:
-                    save_progress(all_results, all_closed, all_failed, batch_num)
+                    save_progress(all_qualified_results, all_closed, all_failed, batch_num)
                 
             except Exception as e:
                 print(f"❌ Error in batch {batch_num}: {e}")
@@ -650,29 +656,37 @@ async def main():
         # Close progress bar
         pbar.close()
         
-        # Separate active online businesses from inactive ones
-        if all_results:
-            active_online, inactive = separate_active_inactive_businesses(all_results)
+        print(f"\n📈 STEP 1 - INITIAL AUDIT COMPLETE:")
+        print(f"✅ Total qualified businesses: {len(all_qualified_results)}")
+        print(f"🚫 Closed businesses: {len(all_closed)}")
+        print(f"❌ Failed to process: {len(all_failed)}")
+        
+        # STEP 2: Separate ONLY the qualified businesses into active vs inactive
+        if all_qualified_results:
+            print(f"\n📈 STEP 2 - SEPARATING QUALIFIED BUSINESSES:")
+            qualified_active, qualified_inactive = separate_qualified_businesses(all_qualified_results)
             
-            print(f"\n📈 BUSINESS SEPARATION RESULTS:")
-            print(f"🟢 Active online businesses: {len(active_online)}")
-            print(f"🟡 Inactive businesses: {len(inactive)}")
-            
-            # Save active online businesses
-            if active_online:
-                active_df = pd.DataFrame(active_online)
+            # Save qualified active businesses
+            if qualified_active:
+                active_df = pd.DataFrame(qualified_active)
                 active_df.to_csv(ACTIVE_ONLINE_CSV, index=False)
-                print(f"💾 Active online businesses saved to: {ACTIVE_ONLINE_CSV}")
+                print(f"💾 Qualified active businesses saved to: {ACTIVE_ONLINE_CSV}")
+            else:
+                print(f"⚠️  No qualified active businesses found")
             
-            # Save inactive businesses
-            if inactive:
-                inactive_df = pd.DataFrame(inactive)
+            # Save qualified inactive businesses
+            if qualified_inactive:
+                inactive_df = pd.DataFrame(qualified_inactive)
                 inactive_df.to_csv(INACTIVE_BUSINESSES_CSV, index=False)
-                print(f"💾 Inactive businesses saved to: {INACTIVE_BUSINESSES_CSV}")
+                print(f"💾 Qualified inactive businesses saved to: {INACTIVE_BUSINESSES_CSV}")
+            else:
+                print(f"⚠️  No qualified inactive businesses found")
+        else:
+            print(f"⚠️  No qualified businesses found to separate")
         
         # Save all qualified businesses (for reference)
-        if all_results:
-            results_df = pd.DataFrame(all_results)
+        if all_qualified_results:
+            results_df = pd.DataFrame(all_qualified_results)
             results_df.to_csv(OUTPUT_CSV, index=False)
             print(f"💾 All qualified businesses saved to: {OUTPUT_CSV}")
         
@@ -688,11 +702,14 @@ async def main():
             failed_df.to_csv(FAILED_BUSINESSES_CSV, index=False)
             print(f"💾 Failed businesses saved to: {FAILED_BUSINESSES_CSV}")
         
-        print(f"\n🎉 Analysis complete!")
+        print(f"\n🎉 AUDIT COMPLETE!")
         print(f"📊 FINAL SUMMARY:")
-        print(f"✅ Total qualified businesses: {len(all_results) if all_results else 0}")
-        print(f"🟢 Active online businesses: {len(active_online) if all_results else 0}")
-        print(f"🟡 Inactive businesses: {len(inactive) if all_results else 0}")
+        print(f"📁 Total businesses processed: {len(businesses)}")
+        print(f"✅ Total qualified businesses: {len(all_qualified_results) if all_qualified_results else 0}")
+        if all_qualified_results:
+            qualified_active, qualified_inactive = separate_qualified_businesses(all_qualified_results) if not ('qualified_active' in locals()) else (qualified_active, qualified_inactive)
+            print(f"🟢 Qualified active businesses: {len(qualified_active)}")
+            print(f"🟡 Qualified inactive businesses: {len(qualified_inactive)}")
         print(f"🚫 Closed businesses: {len(all_closed)}")
         print(f"❌ Failed to process: {len(all_failed)}")
         
